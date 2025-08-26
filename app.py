@@ -1,74 +1,64 @@
+from venv import create
+
 from flask import Flask, request
 from flask_restful import Api, Resource
+from flask_sqlalchemy import SQLAlchemy
+from crud_app import Person,People
+from flask_jwt_extended import create_access_token, JWTManager
 
 app = Flask(__name__)
 api = Api(app)
+jwt = JWTManager(app)
 
-data = [
-        {
-        'id': 1,
-        'name': 'User1',
-        'email': 'user1@py.com',
-        'age': 22,
-        'gender': 'male',
-    },
-        {
-        'id': 2,
-        'name': 'User2',
-        'email': 'user2@py.com',
-        'age': 25,
-        'gender': 'female',
-    },
+app.config['SECRET_KEY'] = 'SUPER-SECRET-KEY'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///test.db'
+db = SQLAlchemy(app)
 
-]
 
-def find_person(person_id):
-    for person in data:
-        if person['id'] == person_id:
-            return person
-    return None
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password = db.Column(db.String(80), nullable=False)
 
-# get post put patch delete
-class People(Resource):
-    def get(self):
-        return data
+with app.app_context():
+    db.create_all()
+
+class UserRegister(Resource):
     def post(self):
-        new_data = {
-            'id': 3,
-            'name': 'User3',
-            'email': 'user3@py.com',
-            'age': 25,
-            'gender': 'male',
-        } #new_data = request.json   # get from Postman
-        data.append(new_data)
-        return new_data, 201
+        data = request.get_json()
+        username = data['username']
+        password = data['password']
 
+        if not username or not password:
+            return {'message': 'Missing username or password'}, 400
+        if User.query.filter_by(username=username).first():
+            return {'message': 'Username already exists'}, 400
 
-class Person(Resource):
-    def get(self,person_id):
-        person = find_person(person_id)
-        if person:
-            return person, 200
-        return {'message':'Person not found'}, 404
-    def put(self,person_id):
-        person = find_person(person_id)
-        if person:
-            person.update(request.json)
-            return person
-        return {'message':'Person not found'}, 404
-    def delete(self,person_id):
-        global data
-        data = [person for person in data if person['id'] != person_id]
-        return {'message':'Person deleted'}, 200
+        new_user = User(username=username, password=password)
+        db.session.add(new_user)
+        db.session.commit()
+        return {'message': 'User created successfully.'}, 200
 
+class UserLogin(Resource):
+    def post(self):
+        data = request.get_json()
+        username = data['username']
+        password = data['password']
 
-api.add_resource(People, '/people')
-api.add_resource(Person, '/people/<int:person_id>')
-if __name__ == '__main__':
-    app.run(debug=True)
+        user = User.query.filter_by(username=username).first()
 
+        if user and user.password == password:
+            access_token = create_access_token(identity=user.id)
+            return {'access_token': access_token}, 200
 
+        return {'message': 'Invalid Credentials.'}, 401
 
+api.add_resource(UserRegister, '/register')
+api.add_resource(UserLogin, '/login')
+
+#for crud_app.py only
+# api.add_resource(People, '/people')
+# api.add_resource(Person, '/people/<int:person_id>')
 
 
 
